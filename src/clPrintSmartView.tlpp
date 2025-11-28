@@ -45,6 +45,7 @@ Class clPrintSmartView
 	
 	// Propriedades privadas
 	Private Data cUrl As Character
+	Private Data cUsername As Character
 	Private Data cPassword As Character
 	
 	// Métodos públicos
@@ -363,7 +364,18 @@ Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logi
 			If nI > 1
 				cParams += ","
 			EndIf
-			cParams += '"' + aParameters[nI][1] + '":"' + aParameters[nI][2] + '"'
+			// Monta o valor conforme o tipo
+			cParams += '"' + aParameters[nI][1] + '":'
+			If ValType(aParameters[nI][2]) == "C"
+				cParams += '"' + aParameters[nI][2] + '"'
+			ElseIf ValType(aParameters[nI][2]) == "N"
+				cParams += cValToChar(aParameters[nI][2])
+			ElseIf ValType(aParameters[nI][2]) == "L"
+				cParams += If(aParameters[nI][2], "true", "false")
+			Else
+				// Array ou Object, assume que já vem como string JSON
+				cParams += aParameters[nI][2]
+			EndIf
 		Next nI
 	EndIf
 
@@ -774,12 +786,16 @@ User Function TestPrintSmartView() As Logical
 
 	// Exemplo 1: Gerar relatório SmartView em PDF (usando autenticação do exemplo 0)
 	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
 
-	// Define parâmetros do relatório
+	// Define parâmetros do relatório conforme API SmartView
 	aParams := {}
-	aAdd(aParams, {"parameter1", "abd"})
+	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
+	aAdd(aParams, {"MV_PAR01", "   "})
+	aAdd(aParams, {"MV_PAR02", "ZZZ"})
+	aAdd(aParams, {"MV_PAR03", 1})
+	aAdd(aParams, {"MV_PAR04", 1})
 
 	// Gera relatório e salva em arquivo
 	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_smartview.pdf")

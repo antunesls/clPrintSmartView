@@ -25,13 +25,16 @@ User Function PSVEX001()
 	oReport:SetUrl("http://localhost:7017")
 	oReport:SetToken(cToken)
 	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
 	
-	// Define parâmetros do relatório
+	// Define parâmetros do relatório conforme API SmartView
 	aParams := {}
-	aAdd(aParams, {"dataInicial", DtoC(Date() - 30)})
-	aAdd(aParams, {"dataFinal", DtoC(Date())})
+	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
+	aAdd(aParams, {"MV_PAR01", "   "})
+	aAdd(aParams, {"MV_PAR02", "ZZZ"})
+	aAdd(aParams, {"MV_PAR03", 1})
+	aAdd(aParams, {"MV_PAR04", 1})
 	
 	// Gera relatório e salva em arquivo
 	ConOut("[PSVEX001] Gerando relatório...")

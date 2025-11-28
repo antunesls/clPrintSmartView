@@ -42,13 +42,16 @@ User Function PSVEX002()
 	
 	// Configura relatório
 	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
 	
-	// Parâmetros do relatório
+	// Parâmetros do relatório conforme API SmartView
 	aParams := {}
-	aAdd(aParams, {"filial", xFilial("SA1")})
-	aAdd(aParams, {"cliente", "000001"})
+	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
+	aAdd(aParams, {"MV_PAR01", "   "})
+	aAdd(aParams, {"MV_PAR02", "ZZZ"})
+	aAdd(aParams, {"MV_PAR03", 1})
+	aAdd(aParams, {"MV_PAR04", 1})
 	
 	// Gera em múltiplos formatos
 	ConOut("[PSVEX002] Gerando relatório...")

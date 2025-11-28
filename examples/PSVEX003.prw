@@ -61,16 +61,16 @@ Static Function ProcessReport()
 	
 	// Configura relatório
 	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetReportId(SuperGetMV("MV_PSVRPID", .F., ""))
+	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
 	
-	// Data de referência (dia anterior)
-	cDataRef := DtoC(Date() - 1)
-	
-	// Parâmetros
+	// Parâmetros do relatório conforme API SmartView
 	aParams := {}
-	aAdd(aParams, {"dataReferencia", cDataRef})
-	aAdd(aParams, {"filial", cFilAnt})
+	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
+	aAdd(aParams, {"MV_PAR01", "   "})
+	aAdd(aParams, {"MV_PAR02", "ZZZ"})
+	aAdd(aParams, {"MV_PAR03", 1})
+	aAdd(aParams, {"MV_PAR04", 1})
 	
 	// Gera relatório
 	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_job_" + DtoS(Date()) + ".pdf")
