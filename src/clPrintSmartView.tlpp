@@ -1,0 +1,884 @@
+#Include "tlpp-core.th"
+#Include "tlpp-rest.th"
+
+Namespace PrintSmartView
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} clPrintSmartView
+Classe para geração e download de relatórios SmartView de forma automatizada.
+Permite gerar relatórios sem interface gráfica, ideal para uso em:
+- Jobs programados
+- Schedules
+- Envio automático para impressoras
+- Processamentos em background
+- Integração com APIs
+@type class
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+@version 1.0
+@example
+// Exemplo de uso em Job
+oReport := clPrintSmartView():New()
+oReport:SetUrl("http://localhost:7017")
+oReport:SetCredentials("admin", "admin")
+If oReport:Authenticate(.F.)
+    oReport:SetReportId("uuid-do-relatorio")
+    oReport:SetEndpoint("/api/reports/v2/generate")
+    cArquivo := oReport:GenerateReport({{"param1","valor"}}, {"pdf"}, .T.)
+EndIf
+/*/
+//-------------------------------------------------------------------
+Class clPrintSmartView
+
+
+	Public Data cEndpoint As Character
+	Public Data aHeaders As Array
+	Public Data cLastError As Character
+	Public Data cTempPath As Character
+	Public Data nTimeout As Numeric
+	Public Data cToken As Character
+	Public Data cReportId As Character
+	Public Data cGenerationId As Character
+
+	Private Data cUrl As Character
+	Private Data cUsername As Character
+	Private Data cPassword As Character
+
+	Public Method New() As Object Constructor
+	Public Method SetUrl(cUrl As Character) As Logical
+	Public Method GetUrl() As Character
+	Public Method SetEndpoint(cEndpoint As Character) As Logical
+	Public Method AddHeader(cKey As Character, cValue As Character) As Logical
+	Public Method SetTimeout(nSeconds As Numeric) As Logical
+	Public Method SetCredentials(cUsername As Character, cPassword As Character) As Logical
+	Public Method GetUsername() As Character
+	Public Method Authenticate(lRememberUser As Logical) As Logical
+	Public Method SetToken(cToken As Character) As Logical
+	Public Method SetReportId(cReportId As Character) As Logical
+	Public Method SetGenerationId(cGenerationId As Character) As Logical
+	Public Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method DownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method GetLastError() As Character
+	Public Method SaveToTemp(cContent As Character, cFileName As Character) As Character
+	Public Method ConvertToBase64(cContent As Character) As Character
+	Public Method FileToBase64(cFilePath As Character) As Character
+	Public Method SendFileAsBase64(cJsonBody As Character, cFilePath As Character) As Character
+
+EndClass
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} New
+Construtor da classe
+@type method
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method New() As Object Class clPrintSmartView
+
+	::cUrl := "" As Character
+	::cEndpoint := "" As Character
+	::aHeaders := {} As Array
+	::cLastError := "" As Character
+	::cTempPath := GetTempPath() As Character
+	::nTimeout := 120 As Numeric
+	::cToken := "" As Character
+	::cReportId := "" As Character
+	::cGenerationId := "" As Character
+	::cUsername := "" As Character
+	::cPassword := "" As Character
+
+Return Self As Object
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetUrl
+Define a URL base para as requisições
+@type method
+@param cUrl, character, URL base
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetUrl(cUrl As Character) As Logical Class clPrintSmartView
+	::cUrl := cUrl As Character
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetUrl
+Retorna a URL base configurada
+@type method
+@return character, URL base
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method GetUrl() As Character Class clPrintSmartView
+Return ::cUrl As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetEndpoint
+Define o endpoint específico
+@type method
+@param cEndpoint, character, Endpoint da API
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetEndpoint(cEndpoint As Character) As Logical Class clPrintSmartView
+	::cEndpoint := cEndpoint As Character
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} AddHeader
+Adiciona um header à requisição
+@type method
+@param cKey, character, Chave do header
+@param cValue, character, Valor do header
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method AddHeader(cKey As Character, cValue As Character) As Logical Class clPrintSmartView
+	aAdd(::aHeaders, {cKey, cValue} As Array)
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetTimeout
+Define o timeout da requisição
+@type method
+@param nSeconds, numeric, Timeout em segundos
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetTimeout(nSeconds As Numeric) As Logical Class clPrintSmartView
+	::nTimeout := nSeconds As Numeric
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetCredentials
+Define as credenciais de usuário e senha para autenticação
+@type method
+@param cUsername, character, Nome de usuário
+@param cPassword, character, Senha
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetCredentials(cUsername As Character, cPassword As Character) As Logical Class clPrintSmartView
+	::cUsername := cUsername As Character
+	::cPassword := cPassword As Character
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetUsername
+Retorna o nome de usuário configurado
+@type method
+@return character, Nome de usuário
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+@obs A senha não possui método Get por questões de segurança
+/*/
+//-------------------------------------------------------------------
+Method GetUsername() As Character Class clPrintSmartView
+Return ::cUsername As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} Authenticate
+Realiza autenticação e obtém token JWT
+@type method
+@param lRememberUser, logical, Se deve lembrar o usuário
+@return logical, .T. se autenticou com sucesso
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method Authenticate(lRememberUser As Logical) As Logical Class clPrintSmartView
+	Local oRestClient As Object
+	Local cFullUrl As Character
+	Local cResponse As Character
+	Local cBasicAuth As Character
+	Local cCredentials As Character
+	Local cJsonBody As Character
+	Local oJson As Object
+	Local lSuccess := .F. As Logical
+
+	Default lRememberUser := .F. As Logical
+
+	::cLastError := ""
+
+	// Valida credenciais
+	If Empty(::cUsername) .Or. Empty(::cPassword)
+		::cLastError := "Credenciais não definidas. Use SetCredentials()"
+		Return .F. As Logical
+	EndIf
+
+	// Cria Basic Auth
+	cCredentials := ::cUsername + ":" + ::cPassword
+	cBasicAuth := "Basic " + Encode64(cCredentials)
+
+	// Monta URL completa
+	cFullUrl := AllTrim(::cUrl) + "/api/security/token?grant_type=password&issuer=TOTVS-ADVPL-FWJWT"
+
+	// Cria cliente REST
+	oRestClient := FWRest():New(cFullUrl)
+	oRestClient:SetPath("")
+
+	// Adiciona headers
+	oRestClient:SetHeader("Content-Type", "application/json")
+	oRestClient:SetHeader("Authorization", cBasicAuth)
+
+	// Define timeout
+	oRestClient:nTimeOut := ::nTimeout
+
+	// Monta JSON body
+	cJsonBody := '{"rememberUser":' + If(lRememberUser, "true", "false") + '}'
+
+	// Envia requisição POST
+	If oRestClient:Post(cJsonBody)
+		cResponse := oRestClient:GetResult()
+
+		If !Empty(cResponse)
+			// Parse JSON response
+			oJson := JsonObject():New()
+
+			If oJson:FromJson(cResponse) == Nil
+				// Busca o token no response
+				If oJson:HasProperty("access_token")
+					::SetToken(oJson["access_token"])
+					lSuccess := .T.
+				ElseIf oJson:HasProperty("token")
+					::SetToken(oJson["token"])
+					lSuccess := .T.
+				Else
+					::cLastError := "Token não encontrado na resposta"
+				EndIf
+			Else
+				::cLastError := "Erro ao processar JSON de resposta"
+			EndIf
+
+			FreeObj(oJson)
+		Else
+			::cLastError := "Resposta vazia do servidor"
+		EndIf
+	Else
+		::cLastError := "Erro na autenticação: " + oRestClient:GetLastError()
+		If !Empty(oRestClient:GetResult())
+			::cLastError += " - " + oRestClient:GetResult()
+		EndIf
+	EndIf
+
+Return lSuccess As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetToken
+Define o token de autorização Bearer
+@type method
+@param cToken, character, Token JWT
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetToken(cToken As Character) As Logical Class clPrintSmartView
+	Local nPos As Numeric
+
+	::cToken := cToken As Character
+
+	// Remove header Authorization existente
+	nPos := aScan(::aHeaders, {|x| Upper(x[1]) == "AUTHORIZATION"})
+	If nPos > 0
+		aDel(::aHeaders, nPos)
+		aSize(::aHeaders, Len(::aHeaders) - 1)
+	EndIf
+
+	// Adiciona novo header
+	::AddHeader("Authorization", "Bearer " + cToken)
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetReportId
+Define o ID do relatório SmartView
+@type method
+@param cReportId, character, UUID do relatório
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetReportId(cReportId As Character) As Logical Class clPrintSmartView
+	::cReportId := cReportId As Character
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SetGenerationId
+Define o ID de geração do relatório (retornado após gerar)
+@type method
+@param cGenerationId, character, UUID da geração
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SetGenerationId(cGenerationId As Character) As Logical Class clPrintSmartView
+	::cGenerationId := cGenerationId As Character
+Return .T. As Logical
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GenerateReport
+Gera relatório SmartView com parâmetros e formatos
+@type method
+@param aParameters, array, Array com parâmetros [{"key","value"}]
+@param aFormats, array, Array com formatos ["pdf","xlsx"]
+@param lSaveFile, logical, .T. para salvar arquivo
+@param cFileName, character, Nome do arquivo
+@return variant, Caminho do arquivo ou base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+	Local cJson As Character
+	Local cParams As Character
+	Local nI As Numeric
+
+	Default aParameters := {} As Array
+	Default aFormats := {"pdf"} As Array
+	Default lSaveFile := .T. As Logical
+	Default cFileName := "report_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + "." + aFormats[1] As Character
+
+	// Valida dados obrigatórios
+	If Empty(::cReportId)
+		::cLastError := "Report ID não definido. Use SetReportId()"
+		Return Nil As Variant
+	EndIf
+
+	// Monta JSON de parâmetros
+	cParams := ""
+	If Len(aParameters) > 0
+		For nI := 1 To Len(aParameters)
+			If nI > 1
+				cParams += ","
+			EndIf
+			cParams += '"' + aParameters[nI][1] + '":"' + aParameters[nI][2] + '"'
+		Next nI
+	EndIf
+
+	// Monta JSON completo
+	cJson := '{'
+	cJson += '"reportId":"' + ::cReportId + '"'
+
+	If !Empty(cParams)
+		cJson += ',"parameters":{' + cParams + '}'
+	EndIf
+
+	cJson += ',"exportFormats":['
+	For nI := 1 To Len(aFormats)
+		If nI > 1
+			cJson += ','
+		EndIf
+		cJson += '"' + aFormats[nI] + '"'
+	Next nI
+	cJson += ']'
+	cJson += '}'
+
+	// Envia requisição
+Return ::PostRequest(cJson, lSaveFile, cFileName) As Variant
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} DownloadReport
+Baixa relatório já gerado usando generation ID
+@type method
+@param cFormat, character, Formato do arquivo (pdf, xlsx, etc)
+@param lSaveFile, logical, .T. para salvar arquivo
+@param cFileName, character, Nome do arquivo
+@return variant, Caminho do arquivo ou base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method DownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+	Local cEndpointBackup As Character
+	Local xReturn As Variant
+
+	Default cFormat := "pdf" As Character
+	Default lSaveFile := .T. As Logical
+	Default cFileName := "report_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + "." + cFormat As Character
+
+	// Valida dados obrigatórios
+	If Empty(::cGenerationId)
+		::cLastError := "Generation ID não definido. Use SetGenerationId() ou gere um relatório primeiro"
+		Return Nil As Variant
+	EndIf
+
+	// Salva endpoint atual e define novo para download
+	cEndpointBackup := ::cEndpoint
+	::cEndpoint := "/api/reports/v2/generate/" + ::cGenerationId + "/" + cFormat
+
+	// Faz requisição GET
+	xReturn := ::GetRequest(lSaveFile, cFileName)
+
+	// Restaura endpoint original
+	::cEndpoint := cEndpointBackup
+
+Return xReturn As Variant
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetRequest
+Envia requisição GET e retorna o conteúdo
+@type method
+@param lSaveFile, logical, .T. para salvar arquivo
+@param cFileName, character, Nome do arquivo
+@return variant, Caminho do arquivo ou base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+	Local oRestClient As Object
+	Local cResponse := "" As Character
+	Local cFullUrl := "" As Character
+	Local xReturn := Nil As Variant
+	Local nI As Numeric
+
+	Default lSaveFile := .T. As Logical
+	Default cFileName := "file_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + ".dat" As Character
+
+	::cLastError := ""
+
+	// Monta URL completa
+	cFullUrl := AllTrim(::cUrl)
+	If !Empty(::cEndpoint)
+		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
+			cFullUrl += "/"
+		EndIf
+		cFullUrl += AllTrim(::cEndpoint)
+	EndIf
+
+	// Cria cliente REST
+	oRestClient := FWRest():New(cFullUrl)
+	oRestClient:SetPath("")
+
+	// Adiciona headers
+	For nI := 1 To Len(::aHeaders)
+		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+	Next nI
+
+	// Define timeout
+	oRestClient:nTimeOut := ::nTimeout
+
+	// Envia requisição GET
+	If oRestClient:Get("")
+		cResponse := oRestClient:GetResult()
+
+		// Verifica se o retorno é um arquivo (binário ou texto)
+		If !Empty(cResponse)
+			If lSaveFile
+				// Salva arquivo na pasta temporária
+				xReturn := ::SaveToTemp(cResponse, cFileName)
+			Else
+				// Converte para base64
+				xReturn := ::ConvertToBase64(cResponse)
+			EndIf
+		Else
+			::cLastError := "Resposta vazia do servidor"
+		EndIf
+	Else
+		::cLastError := "Erro na requisição: " + oRestClient:GetLastError()
+		If !Empty(oRestClient:GetResult())
+			::cLastError += " - " + oRestClient:GetResult()
+		EndIf
+	EndIf
+
+Return xReturn As Variant
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PostRequest
+Envia requisição POST e retorna o conteúdo
+@type method
+@param cJsonBody, character, JSON para enviar no body
+@param lSaveFile, logical, .T. para salvar arquivo, .F. para retornar base64
+@param cFileName, character, Nome do arquivo (opcional)
+@return variant, Caminho do arquivo ou string base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+	Local oRestClient As Object
+	Local cResponse := "" As Character
+	Local cFullUrl := "" As Character
+	Local xReturn := Nil As Variant
+	Local nI As Numeric
+
+	Default lSaveFile := .T. As Logical
+	Default cFileName := "file_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + ".dat" As Character
+
+	::cLastError := ""
+
+	// Monta URL completa
+	cFullUrl := AllTrim(::cUrl)
+	If !Empty(::cEndpoint)
+		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
+			cFullUrl += "/"
+		EndIf
+		cFullUrl += AllTrim(::cEndpoint)
+	EndIf
+
+	// Cria cliente REST
+	oRestClient := FWRest():New(cFullUrl)
+	oRestClient:SetPath("")
+
+	// Adiciona headers
+	For nI := 1 To Len(::aHeaders)
+		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+	Next nI
+
+	// Define timeout
+	oRestClient:nTimeOut := ::nTimeout
+
+	// Envia requisição POST
+	If oRestClient:Post(cJsonBody)
+		cResponse := oRestClient:GetResult()
+
+		// Verifica se o retorno é um arquivo (binário ou texto)
+		If !Empty(cResponse)
+			If lSaveFile
+				// Salva arquivo na pasta temporária
+				xReturn := ::SaveToTemp(cResponse, cFileName)
+			Else
+				// Converte para base64
+				xReturn := ::ConvertToBase64(cResponse)
+			EndIf
+		Else
+			::cLastError := "Resposta vazia do servidor"
+		EndIf
+	Else
+		::cLastError := "Erro na requisição: " + oRestClient:GetLastError()
+		If !Empty(oRestClient:GetResult())
+			::cLastError += " - " + oRestClient:GetResult()
+		EndIf
+	EndIf
+
+Return xReturn As Variant
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetLastError
+Retorna o último erro ocorrido
+@type method
+@return character, Mensagem de erro
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method GetLastError() As Character Class clPrintSmartView
+Return ::cLastError As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SaveToTemp
+Salva conteúdo em arquivo na pasta temporária
+@type method
+@param cContent, character, Conteúdo do arquivo
+@param cFileName, character, Nome do arquivo
+@return character, Caminho completo do arquivo salvo
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SaveToTemp(cContent As Character, cFileName As Character) As Character Class clPrintSmartView
+	Local cFilePath := "" As Character
+	Local nHandle As Numeric
+	Local lSuccess := .F. As Logical
+
+	// Garante que o caminho temporário termina com barra
+	If Right(::cTempPath, 1) != "\"
+		::cTempPath += "\"
+	EndIf
+
+	cFilePath := ::cTempPath + cFileName
+
+	// Cria/sobrescreve arquivo
+	nHandle := FCreate(cFilePath)
+
+	If nHandle >= 0
+		If FWrite(nHandle, cContent) == Len(cContent)
+			lSuccess := .T.
+		Else
+			::cLastError := "Erro ao gravar arquivo: " + cFilePath
+		EndIf
+		FClose(nHandle)
+	Else
+		::cLastError := "Erro ao criar arquivo: " + cFilePath + " - FError: " + cValToChar(FError())
+	EndIf
+
+	If !lSuccess
+		cFilePath := "" As Character
+	EndIf
+
+Return cFilePath As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} ConvertToBase64
+Converte conteúdo para base64
+@type method
+@param cContent, character, Conteúdo a ser convertido
+@return character, String em base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method ConvertToBase64(cContent As Character) As Character Class clPrintSmartView
+	Local cBase64 := "" As Character
+
+	If !Empty(cContent)
+		cBase64 := Encode64(cContent) As Character
+	Else
+		::cLastError := "Conteúdo vazio para conversão base64" As Character
+	EndIf
+
+Return cBase64 As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} FileToBase64
+Lê arquivo e converte para base64
+@type method
+@param cFilePath, character, Caminho do arquivo
+@return character, String em base64
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method FileToBase64(cFilePath As Character) As Character Class clPrintSmartView
+	Local cContent := "" As Character
+	Local cBase64 := "" As Character
+	Local nHandle As Numeric
+	Local nSize As Numeric
+
+	If File(cFilePath)
+		nHandle := FOpen(cFilePath, 0) // Modo leitura
+
+		If nHandle >= 0
+			nSize := FSeek(nHandle, 0, 2) // Vai para o final
+			FSeek(nHandle, 0, 0) // Volta para o início
+
+			cContent := Space(nSize)
+			FRead(nHandle, @cContent, nSize)
+			FClose(nHandle)
+
+			cBase64 := ::ConvertToBase64(cContent)
+		Else
+			::cLastError := "Erro ao abrir arquivo: " + cFilePath + " - FError: " + cValToChar(FError())
+		EndIf
+	Else
+		::cLastError := "Arquivo não encontrado: " + cFilePath As Character
+	EndIf
+
+Return cBase64 As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} SendFileAsBase64
+Envia novo POST com arquivo convertido em base64
+@type method
+@param cJsonBody, character, Template JSON (deve conter {BASE64} para substituição)
+@param cFilePath, character, Caminho do arquivo
+@return character, Resposta do servidor
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method SendFileAsBase64(cJsonBody As Character, cFilePath As Character) As Character Class clPrintSmartView
+	Local cBase64 := "" As Character
+	Local cJsonToSend := "" As Character
+	Local oRestClient As Object
+	Local cResponse := "" As Character
+	Local cFullUrl := "" As Character
+	Local nI As Numeric
+
+	::cLastError := ""
+
+	// Converte arquivo para base64
+	cBase64 := ::FileToBase64(cFilePath)
+
+	If Empty(cBase64)
+		Return ""
+	EndIf
+
+	// Substitui placeholder no JSON
+	cJsonToSend := StrTran(cJsonBody, "{BASE64}", cBase64)
+
+	// Monta URL completa
+	cFullUrl := AllTrim(::cUrl)
+	If !Empty(::cEndpoint)
+		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
+			cFullUrl += "/"
+		EndIf
+		cFullUrl += AllTrim(::cEndpoint)
+	EndIf
+
+	// Cria cliente REST
+	oRestClient := FWRest():New(cFullUrl)
+	oRestClient:SetPath("")
+
+	// Adiciona headers
+	For nI := 1 To Len(::aHeaders)
+		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+	Next nI
+
+	// Define timeout
+	oRestClient:nTimeOut := ::nTimeout
+
+	// Envia requisição POST
+	If oRestClient:Post(cJsonToSend)
+		cResponse := oRestClient:GetResult()
+	Else
+		::cLastError := "Erro na requisição: " + oRestClient:GetLastError()
+		If !Empty(oRestClient:GetResult())
+			::cLastError += " - " + oRestClient:GetResult()
+		EndIf
+	EndIf
+
+Return cResponse As Character
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} U_TestPrintSmartView
+Função de exemplo de uso da classe
+@type function
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+User Function TestPrintSmartView() As Logical
+	Local oReport As Object
+	Local cResult As Character
+	Local aParams As Array
+	Local cToken As Character
+
+	// Token JWT de exemplo (substitua pelo token real)
+	cToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InBKd3RQdWJsaWNLZXlGb3IyNTYifQ.eyJpc3MiOiJUT1RWUy1BRFZQTC1GV0pXVCIsInN1YiI6IkFkbWluaXN0cmFkb3IiLCJpYXQiOjE3NjM0NzgxNTksInVzZXJpZCI6IjAwMDAwMCIsImV4cCI6MTc2MzQ4MTc1OSwiZW52SWQiOiJUT1RWUzEyX0xPQ0FMIn0.gJI-emMiuNwZJo_ns28Yx-vXRCXt1_dexxI-lmuT11m-Yt3PcFSH6fccH5cXY-ysDNDKXskpdy6OH6P7oVMdKn8HuWmEJcDMyU0H5hXmFVrEfckGcWCkAJBD5nrgUUjxSwiwGzOu8VtdPxtSnNde6wvDMSmPtkZIXpk9QA8NAwbSilbk5aB1hVT1LmQa96eaGZTUhKKVn9DOeVmOMw7PBhuvH7velcenUprOWsRb9fdi9AxxR7L-I-qaHUmBGFvAPBf6diVyzxYb03TqFiDUOBWx6W4HfonrQ19l-WKLsMXnIs3qF0fH7wHRCXmfRgj3S0VDp3jkEYkUq8dFqT9aZQ"
+
+	// Exemplo 0: Autenticação automática
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetCredentials("admin", "admin")
+
+	If oReport:Authenticate(.F.)
+		MsgInfo("Autenticado com sucesso! Token obtido.")
+		// O token já está configurado automaticamente
+	Else
+		MsgInfo("Erro na autenticação: " + oReport:GetLastError())
+		Return .F. As Logical
+	EndIf
+
+	// Exemplo 1: Gerar relatório SmartView em PDF (usando autenticação do exemplo 0)
+	oReport:SetEndpoint("/api/reports/v2/generate")
+	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:AddHeader("Content-Type", "application/json")
+
+	// Define parâmetros do relatório
+	aParams := {} As Array
+	aAdd(aParams, {"parameter1", "abd"})
+
+	// Gera relatório e salva em arquivo
+	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_smartview.pdf")
+
+	If !Empty(cResult)
+		MsgInfo("Relatório gerado e salvo em: " + cResult)
+	Else
+		MsgInfo("Erro ao gerar relatório: " + oReport:GetLastError())
+	EndIf
+
+	// Exemplo 1b: Download de relatório já gerado
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetToken(cToken)
+	oReport:SetGenerationId("d4591899-3d83-406b-9880-4b94f31f2dc3")
+
+	cResult := oReport:DownloadReport("pdf", .T., "relatorio_download.pdf")
+
+	If !Empty(cResult)
+		MsgInfo("Relatório baixado e salvo em: " + cResult)
+	Else
+		MsgInfo("Erro ao baixar: " + oReport:GetLastError())
+	EndIf
+
+	// Exemplo 2: Gerar relatório e obter em base64
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetEndpoint("/api/reports/v2/generate")
+	oReport:SetToken(cToken)
+	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:AddHeader("Content-Type", "application/json")
+
+	aParams := {} As Array
+	aAdd(aParams, {"parameter1", "teste"})
+
+	cResult := oReport:GenerateReport(aParams, {"pdf"}, .F.) // Retorna base64
+
+	If !Empty(cResult)
+		MsgInfo("Base64 recebido com " + cValToChar(Len(cResult)) + " caracteres")
+	Else
+		MsgInfo("Erro: " + oReport:GetLastError())
+	EndIf
+
+	// Exemplo 3: Gerar múltiplos formatos
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetEndpoint("/api/reports/v2/generate")
+	oReport:SetToken(cToken)
+	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+	oReport:AddHeader("Content-Type", "application/json")
+
+	aParams := {} As Array
+	aAdd(aParams, {"parameter1", "valor1"})
+	aAdd(aParams, {"parameter2", "valor2"})
+
+	cResult := oReport:GenerateReport(aParams, {"pdf", "xlsx"}, .T., "relatorio_multi.pdf")
+
+	If !Empty(cResult)
+		MsgInfo("Relatório multi-formato gerado: " + cResult)
+	Else
+		MsgInfo("Erro: " + oReport:GetLastError())
+	EndIf
+
+	// Exemplo 4: Baixar em base64 para enviar por email
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetToken(cToken)
+	oReport:SetGenerationId("d4591899-3d83-406b-9880-4b94f31f2dc3")
+
+	cResult := oReport:DownloadReport("pdf", .F.) // Retorna base64
+
+	If !Empty(cResult)
+		// Aqui você pode usar o base64 para enviar por email ou outra API
+		MsgInfo("Base64 obtido, pronto para envio")
+	Else
+		MsgInfo("Erro: " + oReport:GetLastError())
+	EndIf
+
+	// Exemplo 5: Autenticar e gerar relatório (fluxo completo)
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl("http://localhost:7017")
+	oReport:SetCredentials("admin", "admin")
+
+	If oReport:Authenticate(.F.)
+		oReport:SetEndpoint("/api/reports/v2/generate")
+		oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
+		oReport:AddHeader("Content-Type", "application/json")
+
+		aParams := {} As Array
+		aAdd(aParams, {"parameter1", "teste_completo"})
+
+		cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_completo.pdf")
+
+		If !Empty(cResult)
+			MsgInfo("Fluxo completo: Autenticado e relatório gerado em " + cResult)
+		Else
+			MsgInfo("Erro ao gerar: " + oReport:GetLastError())
+		EndIf
+	Else
+		MsgInfo("Falha na autenticação: " + oReport:GetLastError())
+	EndIf
+
+Return .T. As Logical
+
+	EndNamespace
+

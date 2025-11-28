@@ -1,0 +1,93 @@
+# Arquivos compilados Protheus
+*.apo
+*.app
+*.rpo
+*.RPO
+
+# Arquivos de log
+*.log
+*.txt
+*.LOG
+
+# Arquivos temporários
+*.tmp
+*.temp
+*.bak
+*.old
+*.~*
+
+# Diretórios de build
+/build/
+/dist/
+/bin/
+/obj/
+
+# Arquivos do sistema operacional
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDEs e editores
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sublime-project
+*.sublime-workspace
+
+# Arquivos específicos do TDS
+*.PPO
+*.ppo
+.tds/
+smartclientbin/
+appserver/
+*.ini
+
+# Arquivos de relatórios temporários
+*.pdf
+*.xlsx
+*.docx
+*.html
+/temp/
+/reports/
+
+# Node modules (caso use ferramentas de build)
+node_modules/
+package-lock.json
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# Arquivos de cache
+*.cache
+.cache/
+
+# Arquivos de backup do VSCode
+*.code-workspace
+
+# Diretórios temporários do Protheus
+\temp\*
+\system\*
+\data\*
+
+# Certificados e chaves
+*.pem
+*.key
+*.crt
+*.pfx
+
+# Configurações locais
+appserver.ini
+smartclient.ini
+config.local.json
+
+# Arquivos de teste (se houver no futuro)
+/test_results/
+/coverage/

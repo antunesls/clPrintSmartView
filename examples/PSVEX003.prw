@@ -1,0 +1,114 @@
+#Include "totvs.ch"
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} PSVEX003
+Exemplo de uso em JOB agendado
+Gera relatórios periodicamente sem interface gráfica
+@type function
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+User Function PSVEX003()
+	Local cEmpAnt As Character
+	Local cFilAnt As Character
+	
+	// Parâmetros passados pelo schedule
+	cEmpAnt := GetPvProfString("PSVJOB", "Empresa", "99", GetAdv97())
+	cFilAnt := GetPvProfString("PSVJOB", "Filial", "01", GetAdv97())
+	
+	ConOut("[PSVEX003] Job iniciado - Empresa: " + cEmpAnt + " Filial: " + cFilAnt)
+	
+	// Prepara ambiente
+	RpcSetType(3)
+	RpcSetEnv(cEmpAnt, cFilAnt)
+	
+	// Executa processamento
+	ProcessReport()
+	
+	// Finaliza ambiente
+	RpcClearEnv()
+	
+	ConOut("[PSVEX003] Job finalizado")
+	
+Return
+
+//-------------------------------------------------------------------
+Static Function ProcessReport()
+	Local oReport As Object
+	Local cResult As Character
+	Local aParams As Array
+	Local cDataRef As Character
+	Local lSuccess As Logical
+	
+	ConOut("[PSVEX003] Processando relatório...")
+	
+	lSuccess := .F.
+	
+	// Cria instância
+	oReport := PrintSmartView.clPrintSmartView():New()
+	oReport:SetUrl(SuperGetMV("MV_PSVURL", .F., "http://localhost:7017"))
+	oReport:SetCredentials(;
+		SuperGetMV("MV_PSVUSER", .F., "admin"),;
+		SuperGetMV("MV_PSVPASS", .F., "admin");
+	)
+	
+	// Autentica
+	If !oReport:Authenticate(.F.)
+		ConOut("[PSVEX003] Erro autenticação: " + oReport:GetLastError())
+		Return .F.
+	EndIf
+	
+	// Configura relatório
+	oReport:SetEndpoint("/api/reports/v2/generate")
+	oReport:SetReportId(SuperGetMV("MV_PSVRPID", .F., ""))
+	oReport:AddHeader("Content-Type", "application/json")
+	
+	// Data de referência (dia anterior)
+	cDataRef := DtoC(Date() - 1)
+	
+	// Parâmetros
+	aParams := {}
+	aAdd(aParams, {"dataReferencia", cDataRef})
+	aAdd(aParams, {"filial", cFilAnt})
+	
+	// Gera relatório
+	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_job_" + DtoS(Date()) + ".pdf")
+	
+	If !Empty(cResult)
+		ConOut("[PSVEX003] Relatório gerado: " + cResult)
+		
+		// Envia por email (exemplo)
+		SendReportByEmail(cResult)
+		
+		lSuccess := .T.
+	Else
+		ConOut("[PSVEX003] Erro ao gerar: " + oReport:GetLastError())
+		
+		// Log de erro
+		LogError(oReport:GetLastError())
+	EndIf
+	
+Return lSuccess
+
+//-------------------------------------------------------------------
+Static Function SendReportByEmail(cFilePath As Character)
+	// Implemente envio de email aqui
+	ConOut("[PSVEX003] Enviando relatório por email: " + cFilePath)
+	// U_SendMail(cFilePath)
+Return
+
+//-------------------------------------------------------------------
+Static Function LogError(cError As Character)
+	Local nHandle As Numeric
+	Local cLogFile As Character
+	
+	cLogFile := "\logs\psvjob_" + DtoS(Date()) + ".log"
+	
+	nHandle := FCreate(cLogFile, 0)
+	If nHandle >= 0
+		FWrite(nHandle, Time() + " - " + cError + CRLF)
+		FClose(nHandle)
+	EndIf
+	
+Return
