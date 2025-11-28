@@ -1,3 +1,4 @@
+#Include 'totvs.ch'
 #Include "tlpp-core.th"
 #Include "tlpp-rest.th"
 
@@ -47,6 +48,8 @@ Class clPrintSmartView
 	Private Data cUrl As Character
 	Private Data cUsername As Character
 	Private Data cPassword As Character
+	Private Data lUseParamCache As Logical
+	Private Data cTokenExpiry As Character
 	
 	// Métodos públicos
 	Public Method New()
@@ -59,6 +62,9 @@ Class clPrintSmartView
 	Public Method GetUsername() As Character
 	Public Method Authenticate(lRememberUser As Logical) As Logical
 	Public Method SetToken(cToken As Character) As Logical
+	Public Method EnableTokenCache(lEnable As Logical) As Logical
+	Public Method GetCachedToken() As Character
+	Public Method EnsureAuthenticated() As Logical
 	Public Method SetReportId(cReportId As Character) As Logical
 	Public Method SetGenerationId(cGenerationId As Character) As Logical
 	Public Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant
@@ -94,6 +100,8 @@ Method New() Class clPrintSmartView
 	::cGenerationId := ""
 	::cUsername := ""
 	::cPassword := ""
+	::lUseParamCache := .F.
+	::cTokenExpiry := ""
 
 Return Self
 
@@ -201,14 +209,18 @@ Realiza autenticação e obtém token JWT
 /*/
 //-------------------------------------------------------------------
 Method Authenticate(lRememberUser As Logical) As Logical Class clPrintSmartView
+	
 	Local oRestClient As Object
-	Local cFullUrl As Character
+	//Local cFullUrl As Character
 	Local cResponse As Character
 	Local cBasicAuth As Character
 	Local cCredentials As Character
 	Local cJsonBody As Character
 	Local oJson As Object
+	Local aHeader As Array
 	Local lSuccess := .F.
+	
+	aHeader := {}
 
 	Default lRememberUser := .F.
 
@@ -224,25 +236,28 @@ Method Authenticate(lRememberUser As Logical) As Logical Class clPrintSmartView
 	cCredentials := ::cUsername + ":" + ::cPassword
 	cBasicAuth := "Basic " + Encode64(cCredentials)
 
-	// Monta URL completa
-	cFullUrl := AllTrim(::cUrl) + "/api/security/token?grant_type=password&issuer=TOTVS-ADVPL-FWJWT"
+	// Cria cliente REST (apenas host)
+	oRestClient := FWRest():New(AllTrim(::cUrl))
+	oRestClient:SetPath("/api/security/token?grant_type=password&issuer=TOTVS-ADVPL-FWJWT")
 
-	// Cria cliente REST
-	oRestClient := FWRest():New(cFullUrl)
-	oRestClient:SetPath("")
+	// Define timeout (método oficial)
+	oRestClient:SetTimeOut(::nTimeout)
 
-	// Adiciona headers
-	oRestClient:SetHeader("Content-Type", "application/json")
-	oRestClient:SetHeader("Authorization", cBasicAuth)
+	// Desabilita checagem automática de status para controlar manualmente
+	oRestClient:SetChkStatus(.F.)
 
-	// Define timeout
-	oRestClient:nTimeOut := ::nTimeout
+	// Prepara headers
+	aAdd(aHeader, "Content-Type: application/json")
+	aAdd(aHeader, "Authorization: " + cBasicAuth)
 
 	// Monta JSON body
 	cJsonBody := '{"rememberUser":' + If(lRememberUser, "true", "false") + '}'
 
+	// Define body da requisição
+	oRestClient:SetPostParams(cJsonBody)
+
 	// Envia requisição POST
-	If oRestClient:Post(cJsonBody)
+	If oRestClient:Post(aHeader)
 		cResponse := oRestClient:GetResult()
 
 		If !Empty(cResponse)
@@ -291,6 +306,11 @@ Method SetToken(cToken As Character) As Logical Class clPrintSmartView
 
 	::cToken := cToken
 
+	// Salva token no parâmetro se habilitado
+	If ::lUseParamCache
+		PutMV("MV_PSVTOKN", cToken)
+	EndIf
+
 	// Remove header Authorization existente
 	nPos := aScan(::aHeaders, {|x| Upper(x[1]) == "AUTHORIZATION"})
 	If nPos > 0
@@ -301,6 +321,77 @@ Method SetToken(cToken As Character) As Logical Class clPrintSmartView
 	// Adiciona novo header
 	::AddHeader("Authorization", "Bearer " + cToken)
 Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} EnableTokenCache
+Habilita/desabilita cache de token em parâmetro
+@type method
+@param lEnable, logical, .T. para habilitar cache em MV_PSVTOKN
+@return logical, .T. sempre
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method EnableTokenCache(lEnable As Logical) As Logical Class clPrintSmartView
+	Default lEnable := .T.
+	::lUseParamCache := lEnable
+Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} GetCachedToken
+Tenta recuperar token do cache (parâmetro ou memória)
+@type method
+@return character, Token em cache ou vazio
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method GetCachedToken() As Character Class clPrintSmartView
+	Local cToken := ""
+	
+	// Tenta do parâmetro primeiro se habilitado
+	If ::lUseParamCache
+		cToken := SuperGetMV("MV_PSVTOKN", .F., "")
+	EndIf
+	
+	// Se não encontrou no parâmetro, usa o da memória
+	If Empty(cToken)
+		cToken := ::cToken
+	EndIf
+	
+Return cToken
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} EnsureAuthenticated
+Garante que está autenticado, reautenticando se necessário
+@type method
+@return logical, .T. se está autenticado
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+/*/
+//-------------------------------------------------------------------
+Method EnsureAuthenticated() As Logical Class clPrintSmartView
+	Local lAuthenticated := .F.
+	Local cCachedToken := ""
+	
+	// Verifica se já tem token em cache
+	cCachedToken := ::GetCachedToken()
+	
+	If !Empty(cCachedToken)
+		// Usa token do cache
+		::SetToken(cCachedToken)
+		lAuthenticated := .T.
+	Else
+		// Tenta autenticar se tem credenciais
+		If !Empty(::cUsername) .And. !Empty(::cPassword)
+			lAuthenticated := ::Authenticate(.F.)
+		Else
+			::cLastError := "Token não encontrado e credenciais não definidas"
+			lAuthenticated := .F.
+		EndIf
+	EndIf
+	
+Return lAuthenticated
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} SetReportId
@@ -350,6 +441,11 @@ Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logi
 	Default aFormats := {"pdf"}
 	Default lSaveFile := .T.
 	Default cFileName := "report_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + "." + aFormats[1]
+
+	// Garante autenticação antes de gerar relatório
+	If !::EnsureAuthenticated()
+		Return Nil
+	EndIf
 
 	// Valida dados obrigatórios
 	If Empty(::cReportId)
@@ -452,7 +548,9 @@ Envia requisição GET e retorna o conteúdo
 Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
 	Local oRestClient As Object
 	Local cResponse := ""
-	Local cFullUrl := ""
+	Local cHost := ""
+	Local cPath := ""
+	Local aHeader As Array
 	Local xReturn := Nil
 	Local nI As Numeric
 
@@ -461,29 +559,28 @@ Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant Class
 
 	::cLastError := ""
 
-	// Monta URL completa
-	cFullUrl := AllTrim(::cUrl)
-	If !Empty(::cEndpoint)
-		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
-			cFullUrl += "/"
-		EndIf
-		cFullUrl += AllTrim(::cEndpoint)
-	EndIf
+	// Separa host e path conforme documentação FWRest
+	cHost := AllTrim(::cUrl)
+	cPath := AllTrim(::cEndpoint)
 
-	// Cria cliente REST
-	oRestClient := FWRest():New(cFullUrl)
-	oRestClient:SetPath("")
+	// Cria cliente REST (apenas host)
+	oRestClient := FWRest():New(cHost)
+	oRestClient:SetPath(cPath)
 
-	// Adiciona headers
+	// Define timeout usando método oficial
+	oRestClient:SetTimeOut(::nTimeout)
+
+	// Desabilita checagem automática de status para controlar manualmente
+	oRestClient:SetChkStatus(.F.)
+
+	// Prepara headers no formato correto
+	aHeader := {}
 	For nI := 1 To Len(::aHeaders)
-		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+		aAdd(aHeader, ::aHeaders[nI][1] + ": " + ::aHeaders[nI][2])
 	Next nI
 
-	// Define timeout
-	oRestClient:nTimeOut := ::nTimeout
-
 	// Envia requisição GET
-	If oRestClient:Get("")
+	If oRestClient:Get(aHeader)
 		cResponse := oRestClient:GetResult()
 
 		// Verifica se o retorno é um arquivo (binário ou texto)
@@ -522,7 +619,9 @@ Envia requisição POST e retorna o conteúdo
 Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
 	Local oRestClient As Object
 	Local cResponse := ""
-	Local cFullUrl := ""
+	Local cHost := ""
+	Local cPath := ""
+	Local aHeader As Array
 	Local xReturn := Nil
 	Local nI As Numeric
 
@@ -531,29 +630,31 @@ Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Ch
 
 	::cLastError := ""
 
-	// Monta URL completa
-	cFullUrl := AllTrim(::cUrl)
-	If !Empty(::cEndpoint)
-		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
-			cFullUrl += "/"
-		EndIf
-		cFullUrl += AllTrim(::cEndpoint)
-	EndIf
+	// Separa host e path conforme documentação FWRest
+	cHost := AllTrim(::cUrl)
+	cPath := AllTrim(::cEndpoint)
 
-	// Cria cliente REST
-	oRestClient := FWRest():New(cFullUrl)
-	oRestClient:SetPath("")
+	// Cria cliente REST (apenas host)
+	oRestClient := FWRest():New(cHost)
+	oRestClient:SetPath(cPath)
 
-	// Adiciona headers
+	// Define timeout usando método oficial
+	oRestClient:SetTimeOut(::nTimeout)
+
+	// Desabilita checagem automática de status para controlar manualmente
+	oRestClient:SetChkStatus(.F.)
+
+	// Prepara headers no formato correto
+	aHeader := {}
 	For nI := 1 To Len(::aHeaders)
-		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+		aAdd(aHeader, ::aHeaders[nI][1] + ": " + ::aHeaders[nI][2])
 	Next nI
 
-	// Define timeout
-	oRestClient:nTimeOut := ::nTimeout
+	// Define body da requisição
+	oRestClient:SetPostParams(cJsonBody)
 
 	// Envia requisição POST
-	If oRestClient:Post(cJsonBody)
+	If oRestClient:Post(aHeader)
 		cResponse := oRestClient:GetResult()
 
 		// Verifica se o retorno é um arquivo (binário ou texto)
@@ -706,7 +807,9 @@ Method SendFileAsBase64(cJsonBody As Character, cFilePath As Character) As Chara
 	Local cJsonToSend := ""
 	Local oRestClient As Object
 	Local cResponse := ""
-	Local cFullUrl := ""
+	Local cHost := ""
+	Local cPath := ""
+	Local aHeader As Array
 	Local nI As Numeric
 
 	::cLastError := ""
@@ -721,29 +824,31 @@ Method SendFileAsBase64(cJsonBody As Character, cFilePath As Character) As Chara
 	// Substitui placeholder no JSON
 	cJsonToSend := StrTran(cJsonBody, "{BASE64}", cBase64)
 
-	// Monta URL completa
-	cFullUrl := AllTrim(::cUrl)
-	If !Empty(::cEndpoint)
-		If Right(cFullUrl, 1) != "/" .And. Left(::cEndpoint, 1) != "/"
-			cFullUrl += "/"
-		EndIf
-		cFullUrl += AllTrim(::cEndpoint)
-	EndIf
+	// Separa host e path conforme documentação FWRest
+	cHost := AllTrim(::cUrl)
+	cPath := AllTrim(::cEndpoint)
 
-	// Cria cliente REST
-	oRestClient := FWRest():New(cFullUrl)
-	oRestClient:SetPath("")
+	// Cria cliente REST (apenas host)
+	oRestClient := FWRest():New(cHost)
+	oRestClient:SetPath(cPath)
 
-	// Adiciona headers
+	// Define timeout usando método oficial
+	oRestClient:SetTimeOut(::nTimeout)
+
+	// Desabilita checagem automática de status para controlar manualmente
+	oRestClient:SetChkStatus(.F.)
+
+	// Prepara headers no formato correto
+	aHeader := {}
 	For nI := 1 To Len(::aHeaders)
-		oRestClient:SetHeader(::aHeaders[nI][1], ::aHeaders[nI][2])
+		aAdd(aHeader, ::aHeaders[nI][1] + ": " + ::aHeaders[nI][2])
 	Next nI
 
-	// Define timeout
-	oRestClient:nTimeOut := ::nTimeout
+	// Define body da requisição
+	oRestClient:SetPostParams(cJsonToSend)
 
 	// Envia requisição POST
-	If oRestClient:Post(cJsonToSend)
+	If oRestClient:Post(aHeader)
 		cResponse := oRestClient:GetResult()
 	Else
 		::cLastError := "Erro na requisição: " + oRestClient:GetLastError()
@@ -755,41 +860,33 @@ Method SendFileAsBase64(cJsonBody As Character, cFilePath As Character) As Chara
 Return cResponse
 
 //-------------------------------------------------------------------
-/*/{Protheus.doc} U_TestPrintSmartView
-Função de exemplo de uso da classe
+/*/{Protheus.doc} U_PSVTEST
+Função de teste da classe clPrintSmartView
 @type function
 @author Lucas Souza - Insider Consulting
 @since 28/11/2025
 /*/
 //-------------------------------------------------------------------
-User Function TestPrintSmartView() As Logical
+User Function PSVTEST() 
 	Local oReport As Object
 	Local cResult As Character
 	Local aParams As Array
-	Local cToken As Character
 
-	// Token JWT de exemplo (substitua pelo token real)
-	cToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InBKd3RQdWJsaWNLZXlGb3IyNTYifQ.eyJpc3MiOiJUT1RWUy1BRFZQTC1GV0pXVCIsInN1YiI6IkFkbWluaXN0cmFkb3IiLCJpYXQiOjE3NjM0NzgxNTksInVzZXJpZCI6IjAwMDAwMCIsImV4cCI6MTc2MzQ4MTc1OSwiZW52SWQiOiJUT1RWUzEyX0xPQ0FMIn0.gJI-emMiuNwZJo_ns28Yx-vXRCXt1_dexxI-lmuT11m-Yt3PcFSH6fccH5cXY-ysDNDKXskpdy6OH6P7oVMdKn8HuWmEJcDMyU0H5hXmFVrEfckGcWCkAJBD5nrgUUjxSwiwGzOu8VtdPxtSnNde6wvDMSmPtkZIXpk9QA8NAwbSilbk5aB1hVT1LmQa96eaGZTUhKKVn9DOeVmOMw7PBhuvH7velcenUprOWsRb9fdi9AxxR7L-I-qaHUmBGFvAPBf6diVyzxYb03TqFiDUOBWx6W4HfonrQ19l-WKLsMXnIs3qF0fH7wHRCXmfRgj3S0VDp3jkEYkUq8dFqT9aZQ"
-
-	// Exemplo 0: Autenticação automática
+	// Exemplo 0: Autenticação automática com cache em memória
+	ConOut("[TEST] Iniciando teste da classe clPrintSmartView")
+	
 	oReport := clPrintSmartView():New()
 	oReport:SetUrl("http://localhost:7017")
 	oReport:SetCredentials("admin", "admin")
+	oReport:EnableTokenCache(.F.) // Usa cache em memória (não no parâmetro)
 
-	If oReport:Authenticate(.F.)
-		FWAlertSuccess("Autenticado com sucesso! Token obtido.", "Autenticação")
-		// O token já está configurado automaticamente
-	Else
-		FWAlertError("Erro na autenticação: " + oReport:GetLastError(), "Erro de Autenticação")
-		Return .F.
-	EndIf
-
-	// Exemplo 1: Gerar relatório SmartView em PDF (usando autenticação do exemplo 0)
+	ConOut("[TEST] Configurando endpoint e relatório")
 	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
 
 	// Define parâmetros do relatório conforme API SmartView
+	ConOut("[TEST] Preparando parâmetros do relatório")
 	aParams := {}
 	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
 	aAdd(aParams, {"MV_PAR01", "   "})
@@ -797,106 +894,83 @@ User Function TestPrintSmartView() As Logical
 	aAdd(aParams, {"MV_PAR03", 1})
 	aAdd(aParams, {"MV_PAR04", 1})
 
-	// Gera relatório e salva em arquivo
+	// Gera relatório - autenticação automática
+	ConOut("[TEST] Gerando relatório (autenticação automática)")
 	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_smartview.pdf")
 
 	If !Empty(cResult)
+		ConOut("[TEST] Sucesso! Relatório gerado: " + cResult)
 		FWAlertSuccess("Relatório gerado e salvo em: " + cResult, "Sucesso")
 	Else
+		ConOut("[TEST] ERRO: " + oReport:GetLastError())
 		FWAlertError("Erro ao gerar relatório: " + oReport:GetLastError(), "Erro na Geração")
 	EndIf
 
-	// Exemplo 1b: Download de relatório já gerado
-	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetToken(cToken)
-	oReport:SetGenerationId("d4591899-3d83-406b-9880-4b94f31f2dc3")
-
-	cResult := oReport:DownloadReport("pdf", .T., "relatorio_download.pdf")
-
-	If !Empty(cResult)
-		FWAlertSuccess("Relatório baixado e salvo em: " + cResult, "Download Concluído")
-	Else
-		FWAlertError("Erro ao baixar: " + oReport:GetLastError(), "Erro no Download")
-	EndIf
-
-	// Exemplo 2: Gerar relatório e obter em base64
-	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetToken(cToken)
-	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
-	oReport:AddHeader("Content-Type", "application/json")
-
-	aParams := {}
-	aAdd(aParams, {"parameter1", "teste"})
-
-	cResult := oReport:GenerateReport(aParams, {"pdf"}, .F.) // Retorna base64
-
-	If !Empty(cResult)
-		FWAlertInfo("Base64 recebido com " + cValToChar(Len(cResult)) + " caracteres", "Base64 Gerado")
-	Else
-		FWAlertError("Erro: " + oReport:GetLastError(), "Erro")
-	EndIf
-
-	// Exemplo 3: Gerar múltiplos formatos
-	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetEndpoint("/api/reports/v2/generate")
-	oReport:SetToken(cToken)
-	oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
-	oReport:AddHeader("Content-Type", "application/json")
-
-	aParams := {}
-	aAdd(aParams, {"parameter1", "valor1"})
-	aAdd(aParams, {"parameter2", "valor2"})
-
-	cResult := oReport:GenerateReport(aParams, {"pdf", "xlsx"}, .T., "relatorio_multi.pdf")
-
-	If !Empty(cResult)
-		FWAlertSuccess("Relatório multi-formato gerado: " + cResult, "Múltiplos Formatos")
-	Else
-		FWAlertError("Erro: " + oReport:GetLastError(), "Erro")
-	EndIf
-
-	// Exemplo 4: Baixar em base64 para enviar por email
-	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetToken(cToken)
-	oReport:SetGenerationId("d4591899-3d83-406b-9880-4b94f31f2dc3")
-
-	cResult := oReport:DownloadReport("pdf", .F.) // Retorna base64
-
-	If !Empty(cResult)
-		// Aqui você pode usar o base64 para enviar por email ou outra API
-		FWAlertInfo("Base64 obtido, pronto para envio", "Preparado para Envio")
-	Else
-		FWAlertError("Erro: " + oReport:GetLastError(), "Erro")
-	EndIf
-
-	// Exemplo 5: Autenticar e gerar relatório (fluxo completo)
-	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetCredentials("admin", "admin")
-
-	If oReport:Authenticate(.F.)
-		oReport:SetEndpoint("/api/reports/v2/generate")
-		oReport:SetReportId("8505ddf2-dcea-4e25-83c7-7c9d8304b37d")
-		oReport:AddHeader("Content-Type", "application/json")
-
-		aParams := {}
-		aAdd(aParams, {"parameter1", "teste_completo"})
-
-		cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_completo.pdf")
-
-		If !Empty(cResult)
-			FWAlertSuccess("Fluxo completo: Autenticado e relatório gerado em " + cResult, "Processo Completo")
-		Else
-			FWAlertError("Erro ao gerar: " + oReport:GetLastError(), "Erro na Geração")
-		EndIf
-	Else
-		FWAlertError("Falha na autenticação: " + oReport:GetLastError(), "Erro de Autenticação")
-	EndIf
+	ConOut("[TEST] Teste concluído")
 
 Return .T.
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} U_PSVPROD
+Exemplo de uso em produção com cache de token em parâmetro
+@type function
+@author Lucas Souza - Insider Consulting
+@since 28/11/2025
+@obs Para usar, configure os parâmetros MV_PSVUSER e MV_PSVPASS
+/*/
+//-------------------------------------------------------------------
+User Function PSVPROD() 
+	Local oReport As Object
+	Local cResult As Character
+	Local aParams As Array
+	Local cUrl As Character
+	Local cUser As Character
+	Local cPass As Character
+	
+	ConOut("[PROD] Iniciando geração de relatório em produção")
+	
+	// Busca configurações de parâmetros (criar com GetSx6())
+	cUrl := SuperGetMV("MV_PSVURL", .F., "http://localhost:7017")
+	cUser := SuperGetMV("MV_PSVUSER", .F., "")
+	cPass := SuperGetMV("MV_PSVPASS", .F., "")
+	
+	// Valida se tem configurações
+	If Empty(cUser) .Or. Empty(cPass)
+		ConOut("[PROD] ERRO: Parâmetros MV_PSVUSER e MV_PSVPASS não configurados!")
+		MsgStop("Configure os parâmetros MV_PSVUSER e MV_PSVPASS", "Erro de Configuração")
+		Return .F.
+	EndIf
+	
+	// Cria instância e configura
+	oReport := clPrintSmartView():New()
+	oReport:SetUrl(cUrl)
+	oReport:SetCredentials(cUser, cPass)
+	oReport:EnableTokenCache(.T.) // Habilita cache em MV_PSVTOKN
+	
+	// Configura relatório
+	oReport:SetEndpoint("/api/reports/v2/generate")
+	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
+	oReport:AddHeader("Content-Type", "application/json")
+	
+	// Parâmetros do relatório
+	aParams := {}
+	aAdd(aParams, {"SV_MULTBRANCH", "[]"})
+	aAdd(aParams, {"MV_PAR01", "   "})
+	aAdd(aParams, {"MV_PAR02", "ZZZ"})
+	aAdd(aParams, {"MV_PAR03", 1})
+	aAdd(aParams, {"MV_PAR04", 1})
+	
+	// Gera relatório - autenticação automática com cache
+	ConOut("[PROD] Gerando relatório (cache em parâmetro MV_PSVTOKN)")
+	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_producao.pdf")
+	
+	If !Empty(cResult)
+		ConOut("[PROD] Sucesso! Relatório: " + cResult)
+		MsgInfo("Relatório gerado com sucesso!" + CRLF + cResult, "Produção")
+	Else
+		ConOut("[PROD] ERRO: " + oReport:GetLastError())
+		MsgStop("Erro ao gerar relatório: " + CRLF + oReport:GetLastError(), "Erro")
+	EndIf
+	
+Return !Empty(cResult)
 

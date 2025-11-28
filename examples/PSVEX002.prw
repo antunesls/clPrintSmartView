@@ -24,21 +24,14 @@ User Function PSVEX002()
 	cUser := SuperGetMV("MV_PSVUSER", .F., "admin")
 	cPass := SuperGetMV("MV_PSVPASS", .F., "admin")
 	
-	// Cria instância e configura
+	// Cria instância com cache em memória
 	oReport := PrintSmartView.clPrintSmartView():New()
 	oReport:SetUrl(cUrl)
 	oReport:SetCredentials(cUser, cPass)
+	oReport:EnableTokenCache(.F.) // Cache em memória
 	oReport:SetTimeout(180) // 3 minutos
 	
-	// Autentica
-	ConOut("[PSVEX002] Autenticando...")
-	If !oReport:Authenticate(.F.)
-		ConOut("[PSVEX002] Falha na autenticação: " + oReport:GetLastError())
-		MsgStop("Falha na autenticação: " + CRLF + oReport:GetLastError(), "Exemplo 002")
-		Return
-	EndIf
-	
-	ConOut("[PSVEX002] Autenticado com sucesso!")
+	ConOut("[PSVEX002] Token será obtido automaticamente ao gerar relatório")
 	
 	// Configura relatório
 	oReport:SetEndpoint("/api/reports/v2/generate")

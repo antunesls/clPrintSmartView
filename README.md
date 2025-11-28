@@ -6,7 +6,7 @@
 
 ## 📋 Descrição
 
-Classe TLPP para geração e download de relatórios SmartView de forma automatizada, sem interface gráfica. Ideal para:
+Classe TLPP para geração e download de relatórios SmartView de forma automatizada, sem interface gráfica com gerenciamento automático de autenticação e cache de token. Ideal para:
 
 - ✅ Jobs programados
 - ✅ Schedules
@@ -36,9 +36,24 @@ print_smartview/
 
 1. Copie o arquivo `src/clPrintSmartView.tlpp` para o diretório de fontes do seu projeto
 2. Compile o fonte no ambiente Protheus
-3. Configure a URL do SmartView e credenciais
+3. Configure os parâmetros de produção (opcional):
+
+### Parâmetros de Configuração
+
+Para uso em produção, crie os seguintes parâmetros via Configurador (SIGACFG):
+
+| Parâmetro | Tipo | Conteúdo | Descrição |
+|-----------|------|----------|-----------|
+| `MV_PSVURL` | C | http://servidor:porta | URL do servidor SmartView |
+| `MV_PSVUSER` | C | usuario | Usuário para autenticação |
+| `MV_PSVPASS` | C | senha | Senha para autenticação |
+| `MV_PSVTOKN` | C | (vazio) | Cache de token JWT (automático) |
+
+**Nota:** Em ambiente de teste, os parâmetros não são obrigatórios. A classe pode usar credenciais passadas via código.
 
 ## 📖 Uso Rápido
+
+### Modo Teste (Autenticação Automática)
 
 ```advpl
 #Include "totvs.ch"
@@ -48,23 +63,22 @@ User Function MyReport()
     Local cResult As Character
     Local aParams As Array
     
-    // Cria instância
-    oReport := clPrintSmartView():New()
+    // Cria instância com autenticação automática
+    oReport := PrintSmartView.clPrintSmartView():New()
     oReport:SetUrl("http://localhost:7017")
     oReport:SetCredentials("admin", "admin")
+    oReport:EnableTokenCache(.F.) // Cache em memória
     
-    // Autentica
-    If oReport:Authenticate(.F.)
-        // Configura relatório
-        oReport:SetEndpoint("/api/reports/v2/generate")
-        oReport:SetReportId("uuid-do-relatorio")
-        oReport:AddHeader("Content-Type", "application/json")
-        
-        // Define parâmetros
-        aParams := {}
-        aAdd(aParams, {"parameter1", "valor1"})
-        
-        // Gera relatório
+    // Configura relatório
+    oReport:SetEndpoint("/api/reports/v2/generate")
+    oReport:SetReportId("uuid-do-relatorio")
+    oReport:AddHeader("Content-Type", "application/json")
+    
+    // Define parâmetros
+    aParams := {}
+    aAdd(aParams, {"parameter1", "valor1"})
+    
+    // Gera relatório (autentica automaticamente se necessário)
         cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "meu_relatorio.pdf")
         
         If !Empty(cResult)

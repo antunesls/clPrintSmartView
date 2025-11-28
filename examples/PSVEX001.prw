@@ -13,17 +13,14 @@ User Function PSVEX001()
 	Local oReport As Object
 	Local cResult As Character
 	Local aParams As Array
-	Local cToken As Character
 	
-	ConOut("[PSVEX001] Iniciando exemplo básico")
+	ConOut("[PSVEX001] Exemplo básico com autenticação automática")
 	
-	// Token JWT (em produção, busque de forma segura)
-	cToken := GetTokenFromConfig()
-	
-	// Cria instância da classe
+	// Cria instância com autenticação automática
 	oReport := PrintSmartView.clPrintSmartView():New()
 	oReport:SetUrl("http://localhost:7017")
-	oReport:SetToken(cToken)
+	oReport:SetCredentials("admin", "admin")
+	oReport:EnableTokenCache(.F.) // Cache em memória
 	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
 	oReport:AddHeader("Content-Type", "application/json")
@@ -37,6 +34,8 @@ User Function PSVEX001()
 	aAdd(aParams, {"MV_PAR04", 1})
 	
 	// Gera relatório e salva em arquivo
+	
+	// Gera relatório (autentica automaticamente se necessário)
 	ConOut("[PSVEX001] Gerando relatório...")
 	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_exemplo.pdf")
 	
@@ -49,18 +48,3 @@ User Function PSVEX001()
 	EndIf
 	
 Return
-
-//-------------------------------------------------------------------
-Static Function GetTokenFromConfig()
-	Local cToken As Character
-	
-	// Em produção, busque de configuração segura
-	// Exemplo: arquivo .ini, banco de dados criptografado, etc
-	cToken := SuperGetMV("MV_PSVTOKN", .F., "")
-	
-	If Empty(cToken)
-		// Token de exemplo (use apenas em desenvolvimento)
-		cToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-	EndIf
-	
-Return cToken

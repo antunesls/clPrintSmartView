@@ -17,15 +17,11 @@ User Function PSVEX004()
 	
 	ConOut("[PSVEX004] Iniciando exemplo email")
 	
-	// Cria e autentica
+	// Cria instância com autenticação automática
 	oReport := PrintSmartView.clPrintSmartView():New()
 	oReport:SetUrl(SuperGetMV("MV_PSVURL", .F., "http://localhost:7017"))
 	oReport:SetCredentials("admin", "admin")
-	
-	If !oReport:Authenticate(.F.)
-		MsgStop("Falha na autenticação", "Exemplo 004")
-		Return
-	EndIf
+	oReport:EnableTokenCache(.F.) // Cache em memória
 	
 	// Configura relatório
 	oReport:SetEndpoint("/api/reports/v2/generate")
