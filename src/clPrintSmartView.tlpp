@@ -70,7 +70,7 @@ Class clPrintSmartView
 	Public Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant
 	Public Method DownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant
 	Public Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant
-	Public Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method PostRequest(cJsonBody As Character) As Variant
 	Public Method GetLastError() As Character
 	Public Method SaveToTemp(cContent As Character, cFileName As Character) As Character
 	Public Method ConvertToBase64(cContent As Character) As Character
@@ -435,7 +435,11 @@ Gera relatório SmartView com parâmetros e formatos
 Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
 	Local cJson As Character
 	Local cParams As Character
+	Local cResponse As Character
+	Local oJson As Object
+	Local cGenerationId As Character
 	Local nI As Numeric
+	Local xReturn As Variant
 
 	Default aParameters := {}
 	Default aFormats := {"pdf"}
@@ -493,8 +497,46 @@ Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logi
 	cJson += ']'
 	cJson += '}'
 
-	// Envia requisição
-Return ::PostRequest(cJson, lSaveFile, cFileName)
+	// Envia POST para iniciar geração (retorna JSON com generationId ou string direta)
+	cResponse := ::PostRequest(cJson)
+	
+	If Empty(cResponse)
+		::cLastError := "Erro ao iniciar geração do relatório"
+		Return Nil
+	EndIf
+	
+	// Remove aspas se vier como string JSON simples: "uuid"
+	cGenerationId := AllTrim(cResponse)
+	If Left(cGenerationId, 1) == '"' .And. Right(cGenerationId, 1) == '"'
+		cGenerationId := SubStr(cGenerationId, 2, Len(cGenerationId) - 2)
+		::SetGenerationId(cGenerationId)
+	Else
+		// Tenta parse como objeto JSON
+		oJson := JsonObject():New()
+		If oJson:FromJson(cResponse) == Nil
+			// Extrai generationId do objeto
+			If oJson:HasProperty("generationId")
+				cGenerationId := oJson["generationId"]
+				::SetGenerationId(cGenerationId)
+			ElseIf oJson:HasProperty("id")
+				cGenerationId := oJson["id"]
+				::SetGenerationId(cGenerationId)
+			Else
+				::cLastError := "generationId não encontrado na resposta: " + cResponse
+				FreeObj(oJson)
+				Return Nil
+			EndIf
+			FreeObj(oJson)
+		Else
+			// Não é JSON válido nem string com aspas - assume que é o ID direto
+			::SetGenerationId(cGenerationId)
+		EndIf
+	EndIf
+	
+	// Agora baixa o relatório usando o generationId
+	xReturn := ::DownloadReport(aFormats[1], lSaveFile, cFileName)
+	
+Return xReturn
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} DownloadReport
@@ -606,27 +648,21 @@ Return xReturn
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} PostRequest
-Envia requisição POST e retorna o conteúdo
+Envia requisição POST e retorna a resposta JSON
 @type method
 @param cJsonBody, character, JSON para enviar no body
-@param lSaveFile, logical, .T. para salvar arquivo, .F. para retornar base64
-@param cFileName, character, Nome do arquivo (opcional)
-@return variant, Caminho do arquivo ou string base64
+@return variant, Resposta JSON do servidor ou Nil em caso de erro
 @author Lucas Souza - Insider Consulting
 @since 28/11/2025
 /*/
 //-------------------------------------------------------------------
-Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+Method PostRequest(cJsonBody As Character) As Variant Class clPrintSmartView
 	Local oRestClient As Object
 	Local cResponse := ""
 	Local cHost := ""
 	Local cPath := ""
 	Local aHeader As Array
-	Local xReturn := Nil
 	Local nI As Numeric
-
-	Default lSaveFile := .T.
-	Default cFileName := "file_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + ".dat"
 
 	::cLastError := ""
 
@@ -656,17 +692,8 @@ Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Ch
 	// Envia requisição POST
 	If oRestClient:Post(aHeader)
 		cResponse := oRestClient:GetResult()
-
-		// Verifica se o retorno é um arquivo (binário ou texto)
-		If !Empty(cResponse)
-			If lSaveFile
-				// Salva arquivo na pasta temporária
-				xReturn := ::SaveToTemp(cResponse, cFileName)
-			Else
-				// Converte para base64
-				xReturn := ::ConvertToBase64(cResponse)
-			EndIf
-		Else
+		
+		If Empty(cResponse)
 			::cLastError := "Resposta vazia do servidor"
 		EndIf
 	Else
@@ -676,7 +703,7 @@ Method PostRequest(cJsonBody As Character, lSaveFile As Logical, cFileName As Ch
 		EndIf
 	EndIf
 
-Return xReturn
+Return cResponse
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} GetLastError
