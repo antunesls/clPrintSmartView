@@ -90,7 +90,7 @@ Construtor da classe
 Method New() Class clPrintSmartView
 
 	::cUrl := ""
-	::cEndpoint := ""
+	::cEndpoint := "/api/reports/v2/generate"
 	::aHeaders := {}
 	::cLastError := ""
 	::cTempPath := GetTempPath()
@@ -102,6 +102,9 @@ Method New() Class clPrintSmartView
 	::cPassword := ""
 	::lUseParamCache := .F.
 	::cTokenExpiry := ""
+	
+	// Adiciona header padrão
+	::AddHeader("Content-Type", "application/json")
 
 Return Self
 
@@ -132,14 +135,15 @@ Return ::cUrl
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} SetEndpoint
-Define o endpoint específico
+Define o endpoint específico (padrão: /api/reports/v2/generate)
 @type method
-@param cEndpoint, character, Endpoint da API
+@param cEndpoint, character, Endpoint da API (opcional)
 @author Lucas Souza - Insider Consulting
 @since 28/11/2025
 /*/
 //-------------------------------------------------------------------
 Method SetEndpoint(cEndpoint As Character) As Logical Class clPrintSmartView
+	Default cEndpoint := "/api/reports/v2/generate"
 	::cEndpoint := cEndpoint
 Return .T.
 
@@ -907,10 +911,8 @@ User Function PSVTEST()
 	oReport:SetCredentials("admin", "admin")
 	oReport:EnableTokenCache(.F.) // Usa cache em memória (não no parâmetro)
 
-	ConOut("[TEST] Configurando endpoint e relatório")
-	oReport:SetEndpoint("/api/reports/v2/generate")
+	ConOut("[TEST] Configurando relatório")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 
 	// Define parâmetros do relatório conforme API SmartView
 	ConOut("[TEST] Preparando parâmetros do relatório")
@@ -975,9 +977,7 @@ User Function PSVPROD()
 	oReport:EnableTokenCache(.T.) // Habilita cache em MV_PSVTOKN
 	
 	// Configura relatório
-	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 	
 	// Parâmetros do relatório
 	aParams := {}
