@@ -20,6 +20,13 @@ Classe TLPP para geração e download de relatórios SmartView de forma automati
 print_smartview/
 ├── src/
 │   └── clPrintSmartView.tlpp          # Classe principal
+├── includes_tlpp/
+│   ├── tlpp-core.th                   # Include core TLPP
+│   ├── tlpp-rest.th                   # Include REST TLPP
+│   ├── tlpp-doc.th                    # Include documentação
+│   ├── tlpp-i18n.th                   # Include internacionalização
+│   ├── tlpp-object.th                 # Include orientação a objetos
+│   └── tlpp-probat.th                 # Include ProBat
 ├── examples/
 │   ├── PSVEX001.prw                   # Exemplo básico de uso
 │   ├── PSVEX002.prw                   # Exemplo com autenticação
@@ -35,25 +42,26 @@ print_smartview/
 ## 🚀 Instalação
 
 1. Copie o arquivo `src/clPrintSmartView.tlpp` para o diretório de fontes do seu projeto
-2. Compile o fonte no ambiente Protheus
-3. Configure os parâmetros de produção (opcional):
+2. Copie a pasta `includes_tlpp/` com todos os arquivos `.th` para o diretório de includes do seu projeto
+3. Compile o fonte no ambiente Protheus
+4. Configure os parâmetros de produção (opcional):
 
 ### Parâmetros de Configuração
 
-Para uso em produção, crie os seguintes parâmetros via Configurador (SIGACFG):
+A classe carrega automaticamente as configurações dos seguintes parâmetros (crie via Configurador - SIGACFG):
 
-| Parâmetro | Tipo | Conteúdo | Descrição |
-|-----------|------|----------|-----------|
-| `MV_PSVURL` | C | http://servidor:porta | URL do servidor SmartView |
-| `MV_PSVUSER` | C | usuario | Usuário para autenticação |
-| `MV_PSVPASS` | C | senha | Senha para autenticação |
-| `MV_PSVTOKN` | C | (vazio) | Cache de token JWT (automático) |
+| Parâmetro | Tipo | Padrão | Descrição |
+|-----------|------|---------|-----------|--------|
+| `MV_PSVURL` | C | http://localhost:7017 | URL do servidor SmartView |
+| `MV_PSVUSER` | C | admin | Usuário para autenticação |
+| `MV_PSVPASS` | C | admin | Senha para autenticação |
+| `MV_PSVTOKN` | C | (vazio) | Cache de token JWT (gerenciado automaticamente) |
 
-**Nota:** Em ambiente de teste, os parâmetros não são obrigatórios. A classe pode usar credenciais passadas via código.
+**Nota:** Os parâmetros são opcionais. Se não existirem, a classe usará os valores padrão. Você pode sobrescrever via `SetUrl()` e `SetCredentials()` se necessário.
 
 ## 📖 Uso Rápido
 
-### Modo Teste (Autenticação Automática)
+### Modo Simples (Configurações Automáticas)
 
 ```advpl
 #Include "totvs.ch"
@@ -63,48 +71,75 @@ User Function MyReport()
     Local cResult As Character
     Local aParams As Array
     
-    // Cria instância com autenticação automática
+    // Cria instância - carrega automaticamente dos parâmetros
+    // MV_PSVURL, MV_PSVUSER, MV_PSVPASS (ou usa padrões)
     oReport := PrintSmartView.clPrintSmartView():New()
-    oReport:SetUrl("http://localhost:7017")
-    oReport:SetCredentials("admin", "admin")
-    oReport:EnableTokenCache(.F.) // Cache em memória
     
     // Configura relatório
-    oReport:SetEndpoint("/api/reports/v2/generate")
     oReport:SetReportId("uuid-do-relatorio")
-    oReport:AddHeader("Content-Type", "application/json")
     
-    // Define parâmetros
+    // Define parâmetros do relatório
     aParams := {}
     aAdd(aParams, {"parameter1", "valor1"})
+    aAdd(aParams, {"parameter2", "valor2"})
     
     // Gera relatório (autentica automaticamente se necessário)
-        cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "meu_relatorio.pdf")
-        
-        If !Empty(cResult)
-            ConOut("Relatório gerado: " + cResult)
-        Else
-            ConOut("Erro: " + oReport:GetLastError())
-        EndIf
+    cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "meu_relatorio.pdf")
+    
+    If !Empty(cResult)
+        ConOut("Relatório gerado: " + cResult)
+    Else
+        ConOut("Erro: " + oReport:GetLastError())
     EndIf
+    
+Return
+```
+
+### Modo Personalizado (Sobrescrevendo Padrões)
+
+```advpl
+User Function MyCustomReport()
+    Local oReport As Object
+    Local cResult As Character
+    
+    oReport := PrintSmartView.clPrintSmartView():New()
+    
+    // Sobrescreve configurações padrão se necessário
+    oReport:SetUrl("http://outro-servidor:8080")
+    oReport:SetCredentials("outro_usuario", "outra_senha")
+    oReport:EnableTokenCache(.F.) // Desabilita cache (usa apenas memória)
+    oReport:SetEndpoint("/api/custom/endpoint") // Endpoint customizado
+    
+    oReport:SetReportId("uuid-do-relatorio")
+    cResult := oReport:GenerateReport({}, {"pdf"}, .T.)
     
 Return
 ```
 
 ## 🔑 Principais Métodos
 
-### Configuração
-- `SetUrl(cUrl)` - Define URL base do SmartView
-- `SetCredentials(cUsername, cPassword)` - Define credenciais
+### Construção
+- `New()` - Cria instância carregando automaticamente:
+  - URL de MV_PSVURL (padrão: http://localhost:7017)
+  - Credenciais de MV_PSVUSER e MV_PSVPASS (padrão: admin/admin)
+  - Endpoint: /api/reports/v2/generate
+  - Header: Content-Type: application/json
+  - Cache de token habilitado em MV_PSVTOKN
+
+### Configuração (Opcionais)
+- `SetUrl(cUrl)` - Sobrescreve URL base do SmartView
+- `SetCredentials(cUsername, cPassword)` - Sobrescreve credenciais
+- `SetEndpoint(cEndpoint)` - Sobrescreve endpoint (padrão: /api/reports/v2/generate)
 - `SetTimeout(nSeconds)` - Define timeout (padrão: 120s)
 - `AddHeader(cKey, cValue)` - Adiciona header customizado
+- `EnableTokenCache(lEnable)` - Controla cache (.T.=parâmetro MV_PSVTOKN, .F.=memória)
 
-### Autenticação
-- `Authenticate(lRememberUser)` - Autentica e obtém token JWT
+### Autenticação (Automática)
+- `EnsureAuthenticated()` - Garante autenticação (chamado automaticamente)
+- `Authenticate(lRememberUser)` - Autentica manualmente e obtém token JWT
 
 ### Geração de Relatórios
-- `SetReportId(cReportId)` - Define UUID do relatório
-- `SetEndpoint(cEndpoint)` - Define endpoint da API
+- `SetReportId(cReportId)` - Define UUID do relatório (obrigatório)
 - `GenerateReport(aParameters, aFormats, lSaveFile, cFileName)` - Gera relatório
 
 ### Download de Relatórios

@@ -16,20 +16,31 @@ Permite gerar relatórios sem interface gráfica, ideal para uso em:
 - Envio automático para impressoras
 - Processamentos em background
 - Integração com APIs
+
+Configurações automáticas no construtor:
+- URL: MV_PSVURL (padrão: http://localhost:7017)
+- Usuário: MV_PSVUSER (padrão: admin)
+- Senha: MV_PSVPASS (padrão: admin)
+- Endpoint: /api/reports/v2/generate
+- Header: Content-Type: application/json
+- Cache de token: habilitado em MV_PSVTOKN
+
 @type class
 @author Lucas Souza - Insider Consulting
 @since 28/11/2025
 @version 1.0
 @example
-// Exemplo de uso em Job
+// Exemplo básico (usa configurações dos parâmetros)
 oReport := clPrintSmartView():New()
-oReport:SetUrl("http://localhost:7017")
-oReport:SetCredentials("admin", "admin")
-If oReport:Authenticate(.F.)
-    oReport:SetReportId("uuid-do-relatorio")
-    oReport:SetEndpoint("/api/reports/v2/generate")
-    cArquivo := oReport:GenerateReport({{"param1","valor"}}, {"pdf"}, .T.)
-EndIf
+oReport:SetReportId("uuid-do-relatorio")
+cArquivo := oReport:GenerateReport({{"param1","valor"}}, {"pdf"}, .T.)
+
+// Exemplo personalizado (sobrescreve padrões)
+oReport := clPrintSmartView():New()
+oReport:SetUrl("http://outro-servidor:8080")
+oReport:SetCredentials("usuario", "senha")
+oReport:SetReportId("uuid-do-relatorio")
+cArquivo := oReport:GenerateReport({}, {"pdf"}, .T.)
 /*/
 //-------------------------------------------------------------------
 Class clPrintSmartView
@@ -68,6 +79,8 @@ Class clPrintSmartView
 	Public Method SetReportId(cReportId As Character) As Logical
 	Public Method SetGenerationId(cGenerationId As Character) As Logical
 	Public Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logical, cFileName As Character) As Variant
+	Public Method CheckReportStatus() As Character
+	Public Method WaitAndDownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant
 	Public Method DownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant
 	Public Method GetRequest(lSaveFile As Logical, cFileName As Character) As Variant
 	Public Method PostRequest(cJsonBody As Character) As Variant
@@ -81,15 +94,26 @@ EndClass
 
 //-------------------------------------------------------------------
 /*/{Protheus.doc} New
-Construtor da classe
+Construtor da classe - carrega configurações automaticamente dos parâmetros
 @type method
+@return object, Instância da classe
 @author Lucas Souza - Insider Consulting
 @since 28/11/2025
+@obs Carrega automaticamente:
+- URL de MV_PSVURL (padrão: http://localhost:7017)
+- Credenciais de MV_PSVUSER/MV_PSVPASS (padrão: admin/admin)
+- Endpoint padrão: /api/reports/v2/generate
+- Header Content-Type: application/json
+- Cache de token habilitado (MV_PSVTOKN)
 /*/
 //-------------------------------------------------------------------
 Method New() Class clPrintSmartView
 
-	::cUrl := ""
+	// Carrega configurações dos parâmetros
+	::cUrl := SuperGetMV("MV_PSVURL", .F., "http://localhost:7017")
+	::cUsername := SuperGetMV("MV_PSVUSER", .F., "admin")
+	::cPassword := SuperGetMV("MV_PSVPASS", .F., "admin")
+	
 	::cEndpoint := "/api/reports/v2/generate"
 	::aHeaders := {}
 	::cLastError := ""
@@ -98,9 +122,7 @@ Method New() Class clPrintSmartView
 	::cToken := ""
 	::cReportId := ""
 	::cGenerationId := ""
-	::cUsername := ""
-	::cPassword := ""
-	::lUseParamCache := .F.
+	::lUseParamCache := .T. // Habilita cache de token por padrão
 	::cTokenExpiry := ""
 	
 	// Adiciona header padrão
@@ -537,8 +559,138 @@ Method GenerateReport(aParameters As Array, aFormats As Array, lSaveFile As Logi
 		EndIf
 	EndIf
 	
-	// Agora baixa o relatório usando o generationId
-	xReturn := ::DownloadReport(aFormats[1], lSaveFile, cFileName)
+	// Aguarda o relatório ficar pronto e então baixa
+	xReturn := ::WaitAndDownloadReport(aFormats[1], lSaveFile, cFileName)
+	
+Return xReturn
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} CheckReportStatus
+Verifica o status de geração do relatório
+@type method
+@return character, Status do relatório (Completed, Pending, Error, etc)
+@author Lucas Souza - Insider Consulting
+@since 04/12/2025
+/*/
+//-------------------------------------------------------------------
+Method CheckReportStatus() As Character Class clPrintSmartView
+	Local oRestClient As Object
+	Local cResponse As Character
+	Local oJson As Object
+	Local cStatus As Character
+	Local cHost As Character
+	Local cPath As Character
+	Local aHeader As Array
+	Local nI As Numeric
+	
+	cStatus := ""
+	::cLastError := ""
+	
+	// Valida generationId
+	If Empty(::cGenerationId)
+		::cLastError := "Generation ID não definido"
+		Return ""
+	EndIf
+	
+	// Monta endpoint para consultar status
+	cHost := AllTrim(::cUrl)
+	cPath := "/api/reports/v2/generate/" + ::cGenerationId
+	
+	// Cria cliente REST
+	oRestClient := FWRest():New(cHost)
+	oRestClient:SetPath(cPath)
+	oRestClient:SetTimeOut(::nTimeout)
+	oRestClient:SetChkStatus(.F.)
+	
+	// Prepara headers
+	aHeader := {}
+	For nI := 1 To Len(::aHeaders)
+		aAdd(aHeader, ::aHeaders[nI][1] + ": " + ::aHeaders[nI][2])
+	Next nI
+	
+	// Envia requisição GET
+	If oRestClient:Get(aHeader)
+		cResponse := oRestClient:GetResult()
+		
+		If !Empty(cResponse)
+			oJson := JsonObject():New()
+			If oJson:FromJson(cResponse) == Nil
+				If oJson:HasProperty("status")
+					cStatus := oJson["status"]
+				EndIf
+			EndIf
+			FreeObj(oJson)
+		EndIf
+	Else
+		::cLastError := "Erro ao consultar status: " + oRestClient:GetLastError()
+	EndIf
+	
+Return cStatus
+
+//-------------------------------------------------------------------
+/*/{Protheus.doc} WaitAndDownloadReport
+Aguarda relatório ficar pronto e faz download
+@type method
+@param cFormat, character, Formato do arquivo (pdf, xlsx, etc)
+@param lSaveFile, logical, .T. para salvar arquivo
+@param cFileName, character, Nome do arquivo
+@return variant, Caminho do arquivo ou base64
+@author Lucas Souza - Insider Consulting
+@since 04/12/2025
+/*/
+//-------------------------------------------------------------------
+Method WaitAndDownloadReport(cFormat As Character, lSaveFile As Logical, cFileName As Character) As Variant Class clPrintSmartView
+	Local cStatus As Character
+	Local nTentativas As Numeric
+	Local nMaxTentativas As Numeric
+	Local nIntervalo As Numeric
+	Local xReturn As Variant
+	
+	Default cFormat := "pdf"
+	Default lSaveFile := .T.
+	Default cFileName := "report_" + DtoS(Date()) + "_" + StrTran(Time(), ":", "") + "." + cFormat
+	
+	nMaxTentativas := 10
+	nIntervalo := 5 // segundos
+	nTentativas := 0
+	cStatus := ""
+	
+	// Loop de verificação de status
+	While nTentativas < nMaxTentativas
+		nTentativas++
+		
+		// Consulta status
+		cStatus := ::CheckReportStatus()
+		
+		If Empty(cStatus)
+			::cLastError := "Erro ao verificar status do relatório"
+			Return Nil
+		EndIf
+		
+		// Verifica se completou
+		If Upper(AllTrim(cStatus)) == "COMPLETED"
+			ConOut("[SmartView] Relatório pronto após " + cValToChar(nTentativas) + " tentativa(s)")
+			Exit
+		ElseIf Upper(AllTrim(cStatus)) == "ERROR" .Or. Upper(AllTrim(cStatus)) == "FAILED"
+			::cLastError := "Geração do relatório falhou com status: " + cStatus
+			Return Nil
+		EndIf
+		
+		// Se ainda está pendente, aguarda
+		If nTentativas < nMaxTentativas
+			ConOut("[SmartView] Aguardando geração... Status: " + cStatus + " (tentativa " + cValToChar(nTentativas) + "/" + cValToChar(nMaxTentativas) + ")")
+			Sleep(nIntervalo * 1000) // Converte para milissegundos
+		EndIf
+	End
+	
+	// Verifica se deu timeout
+	If Upper(AllTrim(cStatus)) != "COMPLETED"
+		::cLastError := "Timeout ao aguardar geração do relatório. Última verificação: " + cStatus
+		Return Nil
+	EndIf
+	
+	// Baixa o relatório
+	xReturn := ::DownloadReport(cFormat, lSaveFile, cFileName)
 	
 Return xReturn
 
@@ -903,13 +1055,10 @@ User Function PSVTEST()
 	Local cResult As Character
 	Local aParams As Array
 
-	// Exemplo 0: Autenticação automática com cache em memória
+	// Exemplo 0: Autenticação automática com cache em parâmetro
 	ConOut("[TEST] Iniciando teste da classe clPrintSmartView")
 	
 	oReport := clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetCredentials("admin", "admin")
-	oReport:EnableTokenCache(.F.) // Usa cache em memória (não no parâmetro)
 
 	ConOut("[TEST] Configurando relatório")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
@@ -952,29 +1101,11 @@ User Function PSVPROD()
 	Local oReport As Object
 	Local cResult As Character
 	Local aParams As Array
-	Local cUrl As Character
-	Local cUser As Character
-	Local cPass As Character
 	
 	ConOut("[PROD] Iniciando geração de relatório em produção")
 	
-	// Busca configurações de parâmetros (criar com GetSx6())
-	cUrl := SuperGetMV("MV_PSVURL", .F., "http://localhost:7017")
-	cUser := SuperGetMV("MV_PSVUSER", .F., "")
-	cPass := SuperGetMV("MV_PSVPASS", .F., "")
-	
-	// Valida se tem configurações
-	If Empty(cUser) .Or. Empty(cPass)
-		ConOut("[PROD] ERRO: Parâmetros MV_PSVUSER e MV_PSVPASS não configurados!")
-		MsgStop("Configure os parâmetros MV_PSVUSER e MV_PSVPASS", "Erro de Configuração")
-		Return .F.
-	EndIf
-	
 	// Cria instância e configura
 	oReport := clPrintSmartView():New()
-	oReport:SetUrl(cUrl)
-	oReport:SetCredentials(cUser, cPass)
-	oReport:EnableTokenCache(.T.) // Habilita cache em MV_PSVTOKN
 	
 	// Configura relatório
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
