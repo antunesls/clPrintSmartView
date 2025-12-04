@@ -14,16 +14,14 @@ User Function PSVEX001()
 	Local cResult As Character
 	Local aParams As Array
 	
-	ConOut("[PSVEX001] Exemplo básico com autenticação automática")
+	ConOut("[PSVEX001] Exemplo básico com configurações automáticas")
 	
-	// Cria instância com autenticação automática
+	// Cria instância - carrega automaticamente dos parâmetros ou usa padrões
+	// URL: MV_PSVURL (padrão: http://localhost:7017)
+	// Credenciais: MV_PSVUSER/MV_PSVPASS (padrão: admin/admin)
+	// Cache de token habilitado automaticamente
 	oReport := PrintSmartView.clPrintSmartView():New()
-	oReport:SetUrl("http://localhost:7017")
-	oReport:SetCredentials("admin", "admin")
-	oReport:EnableTokenCache(.F.) // Cache em memória
-	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 	
 	// Define parâmetros do relatório conforme API SmartView
 	aParams := {}
@@ -33,10 +31,8 @@ User Function PSVEX001()
 	aAdd(aParams, {"MV_PAR03", 1})
 	aAdd(aParams, {"MV_PAR04", 1})
 	
-	// Gera relatório e salva em arquivo
-	
-	// Gera relatório (autentica automaticamente se necessário)
-	ConOut("[PSVEX001] Gerando relatório...")
+	// Gera relatório - autentica automaticamente e aguarda processamento
+	ConOut("[PSVEX001] Gerando relatório (aguarda até 50s se necessário)...")
 	cResult := oReport:GenerateReport(aParams, {"pdf"}, .T., "relatorio_exemplo.pdf")
 	
 	If !Empty(cResult)

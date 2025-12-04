@@ -45,21 +45,14 @@ Static Function ProcessReport()
 	
 	lSuccess := .F.
 	
-	// Cria instância com cache em parâmetro (ideal para JOBs)
+	// Cria instância - cache de token em MV_PSVTOKN habilitado automaticamente
+	// Ideal para JOBs: reutiliza token entre execuções
 	oReport := PrintSmartView.clPrintSmartView():New()
-	oReport:SetUrl(SuperGetMV("MV_PSVURL", .F., "http://localhost:7017"))
-	oReport:SetCredentials(;
-		SuperGetMV("MV_PSVUSER", .F., "admin"),;
-		SuperGetMV("MV_PSVPASS", .F., "admin");
-	)
-	oReport:EnableTokenCache(.T.) // Cache em MV_PSVTOKN para reutilizar
 	
 	ConOut("[PSVEX003] Token será reutilizado do parâmetro MV_PSVTOKN")
 	
 	// Configura relatório
-	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 	
 	// Parâmetros do relatório conforme API SmartView
 	aParams := {}

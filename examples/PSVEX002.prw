@@ -17,26 +17,16 @@ User Function PSVEX002()
 	Local cUser As Character
 	Local cPass As Character
 	
-	ConOut("[PSVEX002] Iniciando exemplo com autenticação")
+	ConOut("[PSVEX002] Exemplo com múltiplos formatos")
 	
-	// Busca configurações (em produção, use forma segura)
-	cUrl := SuperGetMV("MV_PSVURL", .F., "http://localhost:7017")
-	cUser := SuperGetMV("MV_PSVUSER", .F., "admin")
-	cPass := SuperGetMV("MV_PSVPASS", .F., "admin")
-	
-	// Cria instância com cache em memória
+	// Cria instância - carrega configurações automaticamente
 	oReport := PrintSmartView.clPrintSmartView():New()
-	oReport:SetUrl(cUrl)
-	oReport:SetCredentials(cUser, cPass)
-	oReport:EnableTokenCache(.F.) // Cache em memória
-	oReport:SetTimeout(180) // 3 minutos
+	oReport:SetTimeout(180) // 3 minutos (opcional)
 	
-	ConOut("[PSVEX002] Token será obtido automaticamente ao gerar relatório")
+	ConOut("[PSVEX002] Configurações carregadas dos parâmetros ou padrões")
 	
 	// Configura relatório
-	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 	
 	// Parâmetros do relatório conforme API SmartView
 	aParams := {}
@@ -46,9 +36,9 @@ User Function PSVEX002()
 	aAdd(aParams, {"MV_PAR03", 1})
 	aAdd(aParams, {"MV_PAR04", 1})
 	
-	// Gera em múltiplos formatos
-	ConOut("[PSVEX002] Gerando relatório...")
-	cResult := oReport:GenerateReport(aParams, {"pdf", "xlsx"}, .T., "relatorio_auth.pdf")
+	// Gera em múltiplos formatos (autenticação e aguardo automáticos)
+	ConOut("[PSVEX002] Gerando relatório em PDF e XLSX...")
+	cResult := oReport:GenerateReport(aParams, {"pdf", "xlsx"}, .T., "relatorio_multiformat.pdf")
 	
 	If !Empty(cResult)
 		ConOut("[PSVEX002] Sucesso! Arquivo: " + cResult)

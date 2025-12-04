@@ -15,18 +15,13 @@ User Function PSVEX004()
 	Local aParams As Array
 	Local lSent As Logical
 	
-	ConOut("[PSVEX004] Iniciando exemplo email")
+	ConOut("[PSVEX004] Iniciando exemplo email com base64")
 	
-	// Cria instância com autenticação automática
+	// Cria instância - configurações automáticas
 	oReport := PrintSmartView.clPrintSmartView():New()
-	oReport:SetUrl(SuperGetMV("MV_PSVURL", .F., "http://localhost:7017"))
-	oReport:SetCredentials("admin", "admin")
-	oReport:EnableTokenCache(.F.) // Cache em memória
 	
 	// Configura relatório
-	oReport:SetEndpoint("/api/reports/v2/generate")
 	oReport:SetReportId("dae9a9a2-a6d8-43ef-ba95-3af02b7623e9")
-	oReport:AddHeader("Content-Type", "application/json")
 	
 	// Parâmetros do relatório conforme API SmartView
 	aParams := {}
